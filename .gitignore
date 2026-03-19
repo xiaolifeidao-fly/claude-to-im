@@ -6,3 +6,6 @@ dist/
 *.d.ts.map
 !src/**/*.js
 .DS_Store
+*.tgz
+.env
+config.env

@@ -66,6 +66,15 @@ export interface ConversationResult {
   sdkSessionId: string | null;
 }
 
+export interface ProcessMessageOptions {
+  /**
+   * Force the next turn to replay persisted history into the prompt itself.
+   * This is used as a fallback after user aborts because some SDK sessions
+   * cannot be resumed reliably once aborted.
+   */
+  forceHistoryReplay?: boolean;
+}
+
 /**
  * Process an inbound message: send to Claude, consume the response stream,
  * save to DB, and return the result.
@@ -78,6 +87,7 @@ export async function processMessage(
   files?: FileAttachment[],
   onPartialText?: OnPartialText,
   onToolEvent?: OnToolEvent,
+  options?: ProcessMessageOptions,
 ): Promise<ConversationResult> {
   const { store, llm } = getBridgeContext();
   const sessionId = binding.codepilotSessionId;
@@ -174,6 +184,9 @@ export async function processMessage(
       role: m.role as 'user' | 'assistant',
       content: m.content,
     }));
+    const effectivePrompt = options?.forceHistoryReplay
+      ? buildReplayPrompt(text, historyMsgs)
+      : text;
 
     const abortController = new AbortController();
     if (abortSignal) {
@@ -185,7 +198,7 @@ export async function processMessage(
     }
 
     const stream = llm.streamChat({
-      prompt: text,
+      prompt: effectivePrompt,
       sessionId,
       sdkSessionId: binding.sdkSessionId || undefined,
       model: effectiveModel,
@@ -210,6 +223,25 @@ export async function processMessage(
     store.releaseSessionLock(sessionId, lockId);
     store.setSessionRuntimeStatus(sessionId, 'idle');
   }
+}
+
+export function buildReplayPrompt(
+  text: string,
+  historyMsgs: Array<{ role: 'user' | 'assistant'; content: string }>,
+): string {
+  if (historyMsgs.length === 0) return text;
+
+  const transcript = historyMsgs
+    .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
+    .join('\n\n');
+
+  return [
+    'Continue the same conversation using the prior context below.',
+    'Conversation so far:',
+    transcript,
+    '',
+    `User: ${text}`,
+  ].join('\n');
 }
 
 /**

@@ -193,6 +193,8 @@ interface BridgeManagerState {
   sessionCancelGenerations: Map<string, number>;
   /** Per-session processing chains for concurrency control */
   sessionLocks: Map<string, Promise<void>>;
+  /** After /abort, replay DB history into the next turn instead of resuming a stale provider session. */
+  sessionHistoryReplayPending: Set<string>;
   autoStartChecked: boolean;
 }
 
@@ -208,6 +210,7 @@ function getState(): BridgeManagerState {
       activeTasks: new Map(),
       sessionCancelGenerations: new Map(),
       sessionLocks: new Map(),
+      sessionHistoryReplayPending: new Set(),
       autoStartChecked: false,
     };
   }
@@ -217,6 +220,9 @@ function getState(): BridgeManagerState {
   }
   if (!g[GLOBAL_KEY].sessionCancelGenerations) {
     g[GLOBAL_KEY].sessionCancelGenerations = new Map();
+  }
+  if (!g[GLOBAL_KEY].sessionHistoryReplayPending) {
+    g[GLOBAL_KEY].sessionHistoryReplayPending = new Set();
   }
   return g[GLOBAL_KEY];
 }
@@ -260,6 +266,12 @@ function cancelSessionTasks(
   if (taskAbort) {
     taskAbort.abort(reason);
     state.activeTasks.delete(sessionId);
+  }
+
+  if (reason === 'preserve-session') {
+    state.sessionHistoryReplayPending.add(sessionId);
+  } else {
+    state.sessionHistoryReplayPending.delete(sessionId);
   }
 
   const hadQueuedWork = state.sessionLocks.has(sessionId);
@@ -624,6 +636,10 @@ async function handleMessage(
 
   // Regular message — route to conversation engine
   const binding = router.resolve(msg.address);
+  const shouldReplayHistory = getState().sessionHistoryReplayPending.has(binding.codepilotSessionId);
+  const runtimeBinding = shouldReplayHistory
+    ? { ...binding, sdkSessionId: '' }
+    : binding;
 
   // Notify adapter that message processing is starting (e.g., typing indicator)
   adapter.onMessageStart?.(msg.address.chatId);
@@ -739,18 +755,24 @@ async function handleMessage(
     // Use text or empty string for image-only messages (prompt is still required by streamClaude)
     const promptText = text || (hasAttachments ? 'Describe this image.' : '');
 
-    const result = await engine.processMessage(binding, promptText, async (perm) => {
+    const result = await engine.processMessage(runtimeBinding, promptText, async (perm) => {
       await broker.forwardPermissionRequest(
         adapter,
         msg.address,
         perm.permissionRequestId,
         perm.toolName,
         perm.toolInput,
-        binding.codepilotSessionId,
+        runtimeBinding.codepilotSessionId,
         perm.suggestions,
         msg.messageId,
       );
-    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText, onToolEvent);
+    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText, onToolEvent, {
+      forceHistoryReplay: shouldReplayHistory,
+    });
+
+    if (!result.hasError) {
+      state.sessionHistoryReplayPending.delete(runtimeBinding.codepilotSessionId);
+    }
 
     // Finalize streaming card if adapter supports it.
     // onStreamEnd awaits any in-flight card creation and returns true if a card
