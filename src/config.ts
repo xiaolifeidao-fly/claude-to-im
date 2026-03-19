@@ -9,6 +9,7 @@ export interface Config {
   defaultModel?: string;
   defaultMode: string;
   codexDebugEvents?: boolean;
+  feishuBots?: FeishuBotConfig[];
   // Telegram
   tgBotToken?: string;
   tgChatId?: string;
@@ -34,6 +35,18 @@ export interface Config {
   // File handling
   maxFileSize?: number;       // Max inbound file size in bytes (default 20MB)
   fileOutputEnabled?: boolean; // Send generated files back to IM (default true)
+}
+
+export interface FeishuBotConfig {
+  id: string;
+  name?: string;
+  appId: string;
+  appSecret: string;
+  domain?: string;
+  openIds?: string[];
+  workDir?: string;
+  model?: string;
+  mode?: string;
 }
 
 export const CTI_HOME = process.env.CTI_HOME || path.join(os.homedir(), ".claude-to-im");
@@ -68,6 +81,39 @@ function splitCsv(value: string | undefined): string[] | undefined {
     .filter(Boolean);
 }
 
+function parseFeishuBots(value: string | undefined): FeishuBotConfig[] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return undefined;
+    const bots = parsed
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+      .map((item, index) => {
+        const id = typeof item.id === "string" && item.id.trim()
+          ? item.id.trim()
+          : `feishu-${index + 1}`;
+        return {
+          id,
+          name: typeof item.name === "string" && item.name.trim() ? item.name.trim() : undefined,
+          appId: typeof item.appId === "string" ? item.appId : "",
+          appSecret: typeof item.appSecret === "string" ? item.appSecret : "",
+          domain: typeof item.domain === "string" && item.domain.trim() ? item.domain.trim() : undefined,
+          openIds: Array.isArray(item.openIds)
+            ? item.openIds.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+            : undefined,
+          workDir: typeof item.workDir === "string" && item.workDir.trim() ? item.workDir.trim() : undefined,
+          model: typeof item.model === "string" && item.model.trim() ? item.model.trim() : undefined,
+          mode: typeof item.mode === "string" && item.mode.trim() ? item.mode.trim() : undefined,
+        } satisfies FeishuBotConfig;
+      })
+      .filter((item) => item.appId && item.appSecret);
+
+    return bots.length > 0 ? bots : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function loadConfig(): Config {
   let env = new Map<string, string>();
   try {
@@ -79,6 +125,7 @@ export function loadConfig(): Config {
 
   const rawRuntime = env.get("CTI_RUNTIME") || "claude";
   const runtime = (["claude", "codex", "auto"].includes(rawRuntime) ? rawRuntime : "claude") as Config["runtime"];
+  const feishuBots = parseFeishuBots(env.get("CTI_FEISHU_BOTS"));
 
   return {
     runtime,
@@ -87,6 +134,7 @@ export function loadConfig(): Config {
     defaultModel: env.get("CTI_DEFAULT_MODEL") || undefined,
     defaultMode: env.get("CTI_DEFAULT_MODE") || "code",
     codexDebugEvents: env.get("CTI_CODEX_DEBUG_EVENTS") === "true",
+    feishuBots,
     tgBotToken: env.get("CTI_TG_BOT_TOKEN") || undefined,
     tgChatId: env.get("CTI_TG_CHAT_ID") || undefined,
     tgAllowedUsers: splitCsv(env.get("CTI_TG_ALLOWED_USERS")),
@@ -136,6 +184,9 @@ export function saveConfig(config: Config): void {
   out += formatEnvLine("CTI_DEFAULT_MODE", config.defaultMode);
   if (config.codexDebugEvents !== undefined)
     out += formatEnvLine("CTI_CODEX_DEBUG_EVENTS", String(config.codexDebugEvents));
+  if (config.feishuBots && config.feishuBots.length > 0) {
+    out += formatEnvLine("CTI_FEISHU_BOTS", JSON.stringify(config.feishuBots));
+  }
   out += formatEnvLine("CTI_TG_BOT_TOKEN", config.tgBotToken);
   out += formatEnvLine("CTI_TG_CHAT_ID", config.tgChatId);
   out += formatEnvLine(
@@ -191,6 +242,7 @@ export function maskSecret(value: string): string {
 export function configToSettings(config: Config): Map<string, string> {
   const m = new Map<string, string>();
   m.set("remote_bridge_enabled", "true");
+  const feishuBots = config.feishuBots?.filter((bot) => bot.appId && bot.appSecret) ?? [];
 
   // ── Telegram ──
   // Upstream keys: telegram_bot_token, bridge_telegram_enabled,
@@ -234,12 +286,32 @@ export function configToSettings(config: Config): Map<string, string> {
     "bridge_feishu_enabled",
     config.enabledChannels.includes("feishu") ? "true" : "false"
   );
-  if (config.feishuAppId) m.set("bridge_feishu_app_id", config.feishuAppId);
-  if (config.feishuAppSecret)
-    m.set("bridge_feishu_app_secret", config.feishuAppSecret);
-  if (config.feishuDomain) m.set("bridge_feishu_domain", config.feishuDomain);
-  if (config.feishuAllowedUsers)
-    m.set("bridge_feishu_allowed_users", config.feishuAllowedUsers.join(","));
+  if (feishuBots.length > 0) {
+    m.set("bridge_feishu_bots", JSON.stringify(feishuBots));
+    const primaryBot = feishuBots[0];
+    m.set("bridge_feishu_app_id", primaryBot.appId);
+    m.set("bridge_feishu_app_secret", primaryBot.appSecret);
+    if (primaryBot.domain) m.set("bridge_feishu_domain", primaryBot.domain);
+    if (primaryBot.openIds && primaryBot.openIds.length > 0) {
+      m.set("bridge_feishu_allowed_users", primaryBot.openIds.join(","));
+    }
+    if (primaryBot.workDir) {
+      m.set("bridge_feishu_default_work_dir", primaryBot.workDir);
+    }
+    if (primaryBot.model) {
+      m.set("bridge_feishu_default_model", primaryBot.model);
+    }
+    if (primaryBot.mode) {
+      m.set("bridge_feishu_default_mode", primaryBot.mode);
+    }
+  } else {
+    if (config.feishuAppId) m.set("bridge_feishu_app_id", config.feishuAppId);
+    if (config.feishuAppSecret)
+      m.set("bridge_feishu_app_secret", config.feishuAppSecret);
+    if (config.feishuDomain) m.set("bridge_feishu_domain", config.feishuDomain);
+    if (config.feishuAllowedUsers)
+      m.set("bridge_feishu_allowed_users", config.feishuAllowedUsers.join(","));
+  }
 
   // ── QQ ──
   // Upstream keys: bridge_qq_enabled, bridge_qq_app_id, bridge_qq_app_secret,

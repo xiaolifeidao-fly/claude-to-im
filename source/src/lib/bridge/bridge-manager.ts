@@ -182,6 +182,68 @@ interface AdapterMeta {
   lastError: string | null;
 }
 
+interface FeishuAdapterConfig {
+  id: string;
+  name?: string;
+  appId: string;
+  appSecret: string;
+  domain?: string;
+  openIds?: string[];
+  workDir?: string;
+  model?: string;
+  mode?: string;
+}
+
+function getConfiguredFeishuBots(): FeishuAdapterConfig[] {
+  const raw = getBridgeContext().store.getSetting('bridge_feishu_bots');
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
+    return parsed
+      .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+      .map((entry, index) => ({
+        id: typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : `feishu-${index + 1}`,
+        name: typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : undefined,
+        appId: typeof entry.appId === 'string' ? entry.appId : '',
+        appSecret: typeof entry.appSecret === 'string' ? entry.appSecret : '',
+        domain: typeof entry.domain === 'string' && entry.domain.trim() ? entry.domain.trim() : undefined,
+        openIds: Array.isArray(entry.openIds)
+          ? entry.openIds.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+          : undefined,
+        workDir: typeof entry.workDir === 'string' && entry.workDir.trim() ? entry.workDir.trim() : undefined,
+        model: typeof entry.model === 'string' && entry.model.trim() ? entry.model.trim() : undefined,
+        mode: typeof entry.mode === 'string' && entry.mode.trim() ? entry.mode.trim() : undefined,
+      }))
+      .filter((entry) => entry.appId && entry.appSecret);
+  } catch (error) {
+    console.warn('[bridge-manager] Failed to parse bridge_feishu_bots:', error);
+    return [];
+  }
+}
+
+function alignExistingBindingsToConfiguredWorkdirs(): void {
+  const bindings = router.listBindings();
+  for (const binding of bindings) {
+    const address = {
+      channelType: binding.channelType,
+      chatId: binding.chatId,
+      connectionId: binding.connectionId,
+    };
+    const defaults = router.getBindingDefaults(address);
+    if (
+      binding.workingDirectory !== defaults.workDir
+      || binding.model !== defaults.model
+      || binding.mode !== defaults.mode
+    ) {
+      router.updateBinding(binding.id, {
+        workingDirectory: defaults.workDir,
+        model: defaults.model,
+        mode: defaults.mode,
+      });
+    }
+  }
+}
+
 interface BridgeManagerState {
   adapters: Map<string, BaseChannelAdapter>;
   adapterMeta: Map<string, AdapterMeta>;
@@ -294,10 +356,32 @@ export async function start(): Promise<void> {
     return;
   }
 
+  // Re-align persisted bindings to the configured defaults before adapters
+  // start consuming messages. This keeps each bot on its configured workspace
+  // after daemon restarts.
+  alignExistingBindingsToConfiguredWorkdirs();
+
   // Iterate all registered adapter types and create those that are enabled
   for (const channelType of getRegisteredTypes()) {
     const settingKey = `bridge_${channelType}_enabled`;
     if (store.getSetting(settingKey) !== 'true') continue;
+
+    if (channelType === 'feishu') {
+      const feishuBots = getConfiguredFeishuBots();
+      if (feishuBots.length > 0) {
+        for (const bot of feishuBots) {
+          const adapter = createAdapter(channelType, bot);
+          if (!adapter) continue;
+          const configError = adapter.validateConfig();
+          if (!configError) {
+            registerAdapter(adapter);
+          } else {
+            console.warn(`[bridge-manager] ${adapter.adapterKey} adapter not valid:`, configError);
+          }
+        }
+        continue;
+      }
+    }
 
     const adapter = createAdapter(channelType);
     if (!adapter) continue;
@@ -417,6 +501,7 @@ export function getStatus(): BridgeStatus {
       const meta = state.adapterMeta.get(type);
       return {
         channelType: adapter.channelType,
+        connectionId: adapter.instanceId !== 'default' ? adapter.instanceId : undefined,
         running: adapter.isRunning(),
         connectedAt: state.startedAt,
         lastMessageAt: meta?.lastMessageAt ?? null,
@@ -431,7 +516,7 @@ export function getStatus(): BridgeStatus {
  */
 export function registerAdapter(adapter: BaseChannelAdapter): void {
   const state = getState();
-  state.adapters.set(adapter.channelType, adapter);
+  state.adapters.set(adapter.adapterKey, adapter);
 }
 
 /**
@@ -442,7 +527,7 @@ export function registerAdapter(adapter: BaseChannelAdapter): void {
 function runAdapterLoop(adapter: BaseChannelAdapter): void {
   const state = getState();
   const abort = new AbortController();
-  state.loopAborts.set(adapter.channelType, abort);
+  state.loopAborts.set(adapter.adapterKey, abort);
 
   (async () => {
     while (state.running && adapter.isRunning()) {
@@ -477,11 +562,11 @@ function runAdapterLoop(adapter: BaseChannelAdapter): void {
       } catch (err) {
         if (abort.signal.aborted) break;
         const errMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[bridge-manager] Error in ${adapter.channelType} loop:`, err);
+        console.error(`[bridge-manager] Error in ${adapter.adapterKey} loop:`, err);
         // Track last error per adapter
-        const meta = state.adapterMeta.get(adapter.channelType) || { lastMessageAt: null, lastError: null };
+        const meta = state.adapterMeta.get(adapter.adapterKey) || { lastMessageAt: null, lastError: null };
         meta.lastError = errMsg;
-        state.adapterMeta.set(adapter.channelType, meta);
+        state.adapterMeta.set(adapter.adapterKey, meta);
         // Brief delay to prevent tight error loops
         await new Promise(r => setTimeout(r, 1000));
       }
@@ -489,10 +574,10 @@ function runAdapterLoop(adapter: BaseChannelAdapter): void {
   })().catch(err => {
     if (!abort.signal.aborted) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[bridge-manager] ${adapter.channelType} loop crashed:`, err);
-      const meta = state.adapterMeta.get(adapter.channelType) || { lastMessageAt: null, lastError: null };
+      console.error(`[bridge-manager] ${adapter.adapterKey} loop crashed:`, err);
+      const meta = state.adapterMeta.get(adapter.adapterKey) || { lastMessageAt: null, lastError: null };
       meta.lastError = errMsg;
-      state.adapterMeta.set(adapter.channelType, meta);
+      state.adapterMeta.set(adapter.adapterKey, meta);
     }
   });
 }
@@ -508,9 +593,9 @@ async function handleMessage(
 
   // Update lastMessageAt for this adapter
   const adapterState = getState();
-  const meta = adapterState.adapterMeta.get(adapter.channelType) || { lastMessageAt: null, lastError: null };
+  const meta = adapterState.adapterMeta.get(adapter.adapterKey) || { lastMessageAt: null, lastError: null };
   meta.lastMessageAt = new Date().toISOString();
-  adapterState.adapterMeta.set(adapter.channelType, meta);
+  adapterState.adapterMeta.set(adapter.adapterKey, meta);
 
   // Acknowledge the update offset after processing completes (or fails).
   // This ensures the adapter only advances its committed offset once the
@@ -911,7 +996,7 @@ async function handleCommand(
         '/bind &lt;session_id&gt; - Bind to existing session',
         '/cwd /path - Change working directory',
         '/mode plan|code|ask - Change mode',
-        '/status - Show current status',
+        '/status - Show session status and configured default CWD',
         '/sessions - List recent sessions',
         '/stop_task - Stop current task and reset provider session',
         '/stop - Alias of /stop_task',
@@ -926,6 +1011,7 @@ async function handleCommand(
       // Abort any running task on the current session before creating a new one
       const oldBinding = router.resolve(msg.address);
       cancelSessionTasks(oldBinding.codepilotSessionId);
+      router.resetBindingToConfiguredDefaults(msg.address);
       router.clearBindingSessionContext(msg.address);
 
       let workDir: string | undefined;
@@ -989,11 +1075,16 @@ async function handleCommand(
 
     case '/status': {
       const binding = router.resolve(msg.address);
+      const defaults = router.getBindingDefaults(msg.address);
+      const isUsingDefaultWorkdir = binding.workingDirectory === defaults.workDir;
+      const workdirStatus = isUsingDefaultWorkdir ? 'default' : 'overridden';
       response = [
         '<b>Bridge Status</b>',
         '',
         `Session: <code>${binding.codepilotSessionId.slice(0, 8)}...</code>`,
         `CWD: <code>${escapeHtml(binding.workingDirectory || '~')}</code>`,
+        `Bot Default CWD: <code>${escapeHtml(defaults.workDir || '~')}</code>`,
+        `CWD Status: <b>${workdirStatus}</b>`,
         `Mode: <b>${binding.mode}</b>`,
         `Model: <code>${binding.model || 'default'}</code>`,
       ].join('\n');
@@ -1019,10 +1110,11 @@ async function handleCommand(
     case '/stop': {
       const binding = router.resolve(msg.address);
       const result = cancelSessionTasks(binding.codepilotSessionId);
+      const resetBinding = router.resetBindingToConfiguredDefaults(msg.address);
       if (result.abortedActive || result.hadQueuedWork) {
-        response = 'Stopping all tasks in the current session...';
+        response = `Stopping all tasks in the current session...\nCWD reset to <code>${escapeHtml(resetBinding.workingDirectory || '~')}</code>`;
       } else {
-        response = 'No task is currently running in this session.';
+        response = `No task is currently running in this session.\nCWD reset to <code>${escapeHtml(resetBinding.workingDirectory || '~')}</code>`;
       }
       break;
     }
@@ -1067,7 +1159,7 @@ async function handleCommand(
         '/bind &lt;session_id&gt; - Bind to existing session',
         '/cwd /path - Change working directory',
         '/mode plan|code|ask - Change mode',
-        '/status - Show current status',
+        '/status - Show session status and configured default CWD',
         '/sessions - List recent sessions',
         '/stop_task - Stop current task and reset provider session',
         '/stop - Alias of /stop_task',

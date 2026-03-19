@@ -30,10 +30,19 @@ function createMockStore(): BridgeStore & { bindings: Map<string, ChannelBinding
     getSetting(key: string) {
       if (key === 'bridge_default_work_dir') return '/tmp/test';
       if (key === 'bridge_default_model') return 'claude-3';
+      if (key === 'bridge_default_mode') return 'code';
       if (key === 'bridge_default_provider_id') return '';
+      if (key === 'bridge_feishu_bots') {
+        return JSON.stringify([
+          { id: 'bot-1', appId: 'app-1', appSecret: 'secret-1', openIds: ['ou_a'], workDir: '/feishu/a', model: 'gpt-a', mode: 'plan' },
+        ]);
+      }
       return null;
     },
-    getChannelBinding(channelType: string, chatId: string) {
+    getChannelBinding(channelType: string, chatId: string, connectionId?: string) {
+      const direct = bindings.get(`${channelType}:${connectionId || 'default'}:${chatId}`);
+      if (direct) return direct;
+      if (connectionId && connectionId !== 'default') return null;
       return bindings.get(`${channelType}:${chatId}`) ?? null;
     },
     upsertChannelBinding(data) {
@@ -41,16 +50,17 @@ function createMockStore(): BridgeStore & { bindings: Map<string, ChannelBinding
         id: `binding-${nextId++}`,
         channelType: data.channelType,
         chatId: data.chatId,
+        connectionId: data.connectionId,
         codepilotSessionId: data.codepilotSessionId,
         sdkSessionId: '',
         workingDirectory: data.workingDirectory,
         model: data.model,
-        mode: 'code',
+        mode: (data.mode as ChannelBinding['mode']) || 'code',
         active: true,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      bindings.set(`${data.channelType}:${data.chatId}`, binding);
+      bindings.set(`${data.channelType}:${data.connectionId || 'default'}:${data.chatId}`, binding);
       return binding;
     },
     updateChannelBinding(id: string, updates: Partial<ChannelBinding>) {
@@ -200,7 +210,7 @@ describe('channel-router', () => {
     const binding = router.createBinding({ channelType: 'telegram', chatId: '1' });
     router.updateBinding(binding.id, { mode: 'plan' });
 
-    const updated = store.bindings.get('telegram:1');
+    const updated = store.bindings.get('telegram:default:1');
     assert.equal(updated?.mode, 'plan');
   });
 
@@ -211,7 +221,37 @@ describe('channel-router', () => {
     const cleared = router.clearBindingSessionContext({ channelType: 'telegram', chatId: '1' });
 
     assert.equal(cleared, true);
-    const updated = store.bindings.get('telegram:1');
+    const updated = store.bindings.get('telegram:default:1');
     assert.equal(updated?.sdkSessionId, '');
+  });
+
+  it('uses feishu bot-specific defaults and isolates bindings by connectionId', () => {
+    const first = router.resolve({ channelType: 'feishu', chatId: 'chat-1', connectionId: 'bot-1' });
+    const second = router.resolve({ channelType: 'feishu', chatId: 'chat-1' });
+
+    assert.equal(first.workingDirectory, '/feishu/a');
+    assert.equal(first.model, 'gpt-a');
+    assert.equal(first.mode, 'plan');
+    assert.equal(first.connectionId, 'bot-1');
+    assert.notEqual(first.id, second.id);
+  });
+
+  it('resetBindingToConfiguredDefaults() restores configured workDir/model/mode for a bot', () => {
+    const binding = router.resolve({ channelType: 'feishu', chatId: 'chat-2', connectionId: 'bot-1' });
+    router.updateBinding(binding.id, {
+      workingDirectory: '/tmp/override',
+      model: 'override-model',
+      mode: 'ask',
+    });
+
+    const reset = router.resetBindingToConfiguredDefaults({
+      channelType: 'feishu',
+      chatId: 'chat-2',
+      connectionId: 'bot-1',
+    });
+
+    assert.equal(reset.workingDirectory, '/feishu/a');
+    assert.equal(reset.model, 'gpt-a');
+    assert.equal(reset.mode, 'plan');
   });
 });

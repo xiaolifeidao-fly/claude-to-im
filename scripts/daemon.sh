@@ -21,12 +21,28 @@ ensure_built() {
     if [ -n "$newest_src" ]; then
       need_build=1
     fi
+    # Bridge dependency is developed in-tree under ./source and symlinked into
+    # node_modules/claude-to-im-source. Changes there must also trigger a rebuild.
+    if [ "$need_build" = "0" ] && [ -d "$SKILL_DIR/source/src" ]; then
+      local newest_bridge_src
+      newest_bridge_src=$(find "$SKILL_DIR/source/src" -name '*.ts' -newer "$SKILL_DIR/dist/daemon.mjs" 2>/dev/null | head -1)
+      if [ -n "$newest_bridge_src" ]; then
+        need_build=1
+      fi
+    fi
     # Also check if node_modules/claude-to-im was updated (npm update)
     # — its code is bundled into dist, so changes require a rebuild
     if [ "$need_build" = "0" ] && [ -d "$SKILL_DIR/node_modules/claude-to-im/src" ]; then
       local newest_dep
       newest_dep=$(find "$SKILL_DIR/node_modules/claude-to-im/src" -name '*.ts' -newer "$SKILL_DIR/dist/daemon.mjs" 2>/dev/null | head -1)
       if [ -n "$newest_dep" ]; then
+        need_build=1
+      fi
+    fi
+    if [ "$need_build" = "0" ] && [ -d "$SKILL_DIR/node_modules/claude-to-im-source/src" ]; then
+      local newest_dep_source
+      newest_dep_source=$(find "$SKILL_DIR/node_modules/claude-to-im-source/src" -name '*.ts' -newer "$SKILL_DIR/dist/daemon.mjs" 2>/dev/null | head -1)
+      if [ -n "$newest_dep_source" ]; then
         need_build=1
       fi
     fi

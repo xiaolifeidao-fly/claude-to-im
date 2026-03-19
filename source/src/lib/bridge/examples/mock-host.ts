@@ -40,18 +40,22 @@ class InMemoryStore implements BridgeStore {
 
   getSetting(key: string) { return this.settings.get(key) ?? null; }
 
-  getChannelBinding(channelType: string, chatId: string) {
+  getChannelBinding(channelType: string, chatId: string, connectionId?: string) {
+    const direct = this.bindings.get(`${channelType}:${connectionId || 'default'}:${chatId}`);
+    if (direct) return direct;
+    if (connectionId && connectionId !== 'default') return null;
     return this.bindings.get(`${channelType}:${chatId}`) ?? null;
   }
 
-  upsertChannelBinding(data: { channelType: string; chatId: string; codepilotSessionId: string; sdkSessionId?: string; workingDirectory: string; model: string; mode?: string }) {
-    const key = `${data.channelType}:${data.chatId}`;
+  upsertChannelBinding(data: { channelType: string; chatId: string; connectionId?: string; codepilotSessionId: string; sdkSessionId?: string; workingDirectory: string; model: string; mode?: string }) {
+    const key = `${data.channelType}:${data.connectionId || 'default'}:${data.chatId}`;
     const existing = this.bindings.get(key);
     const id = existing?.id || `binding-${this.nextId++}`;
     const binding: ChannelBinding = {
       id,
       channelType: data.channelType,
       chatId: data.chatId,
+      connectionId: data.connectionId,
       codepilotSessionId: data.codepilotSessionId,
       sdkSessionId: data.sdkSessionId ?? existing?.sdkSessionId ?? '',
       workingDirectory: data.workingDirectory ?? existing?.workingDirectory ?? '',

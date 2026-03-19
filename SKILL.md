@@ -91,7 +91,19 @@ For each enabled channel, collect one credential at a time. Tell the user where 
 
 - **Telegram**: Bot Token → confirm (masked) → Chat ID (see guide for how to get it) → confirm → Allowed User IDs (optional). **Important:** At least one of Chat ID or Allowed User IDs must be set, otherwise the bot will reject all messages.
 - **Discord**: Bot Token → confirm (masked) → Allowed User IDs → Allowed Channel IDs (optional) → Allowed Guild IDs (optional). **Important:** At least one of Allowed User IDs or Allowed Channel IDs must be set, otherwise the bot will reject all messages (default-deny).
-- **Feishu**: App ID → confirm → App Secret → confirm (masked) → Domain (optional) → Allowed User IDs (optional). After collecting credentials, explain the two-phase setup the user must complete:
+- **Feishu**: Prefer the multi-bot config shape. Ask whether they want one Feishu bot or multiple Feishu bots. For each Feishu bot, collect:
+  - Bot ID/name (short stable identifier, e.g. `bot-a`)
+  - App ID → confirm
+  - App Secret → confirm (masked)
+  - Domain (optional)
+  - Allowed User IDs / `open_id` list (optional)
+  - Bot-specific working directory (optional; recommended)
+  - Bot-specific model (optional)
+  - Bot-specific mode (optional)
+  - Write these as `CTI_FEISHU_BOTS=[...]` in config.env.
+  - If the user explicitly wants a legacy single-bot setup, `CTI_FEISHU_APP_ID` / `CTI_FEISHU_APP_SECRET` / `CTI_FEISHU_ALLOWED_USERS` is still acceptable.
+  - Explain that each Feishu bot manages its own `open_id` allowlist, working directory, and isolated bridge session namespace, so bots do not share sessions with each other.
+  - After collecting credentials, explain the two-phase setup the user must complete:
   - **Phase 1** (before starting bridge): (A) batch-add permissions, (B) enable bot capability, (C) publish first version + admin approve. This makes permissions and bot effective.
   - **Phase 2** (requires running bridge): (D) run `/claude-to-im start`, (E) configure events (`im.message.receive_v1`) and callback (`card.action.trigger`) with long connection mode, (F) publish second version + admin approve.
   - **Why two phases:** Feishu validates WebSocket connection when saving event subscription — if the bridge isn't running, saving will fail. The bridge needs published permissions to connect.
@@ -116,12 +128,16 @@ Ask for runtime, default working directory, model, and mode:
 - **Model** (optional): Leave blank to inherit the runtime's own default model. If the user wants to override, ask them to enter a model name. Do NOT hardcode or suggest specific model names — the available models change over time.
 - **Mode**: `code` (default), `plan`, `ask`
 
+If Feishu multi-bot config is being used, keep these as global defaults and let each Feishu bot override them with its own `workDir` / `model` / `mode` where provided.
+
 **Step 4 — Write config and validate**
 
 1. Show a final summary table with all settings (secrets masked to last 4 chars)
+   - For Feishu multi-bot config, show one row per bot: bot ID, masked App ID/App Secret, allowed open_ids, workDir, model, mode
 2. Ask user to confirm before writing
 3. Use Bash to create directory structure: `mkdir -p ~/.claude-to-im/{data,logs,runtime,data/messages}`
 4. Use Write to create `~/.claude-to-im/config.env` with all settings in KEY=VALUE format
+   - For Feishu multi-bot setups, write `CTI_FEISHU_BOTS` as JSON on one line
 5. Use Bash to set permissions: `chmod 600 ~/.claude-to-im/config.env`
 6. Validate tokens — read `SKILL_DIR/references/token-validation.md` for the exact commands and expected responses for each platform. This catches typos and wrong credentials before the user tries to start the daemon.
 7. Report results with a summary table. If any validation fails, explain what might be wrong and how to fix it.
@@ -154,7 +170,9 @@ Run: `bash "SKILL_DIR/scripts/daemon.sh" logs N`
 
 1. Read current config from `~/.claude-to-im/config.env`
 2. Show current settings in a clear table format, with all secrets masked (only last 4 chars visible)
+   - If `CTI_FEISHU_BOTS` exists, show Feishu bots as a list of bot records instead of flattening them into one shared Feishu config
 3. Use AskUserQuestion to ask what the user wants to change
+   - For Feishu, support: add a bot, remove a bot, rotate one bot's secret, change one bot's allowed open_ids, change one bot's workDir/model/mode, or migrate from legacy single-bot fields to `CTI_FEISHU_BOTS`
 4. When collecting new values, tell the user where to find the value; only show the full guide from `SKILL_DIR/references/setup-guides.md` if they ask for help
 5. Update the config file atomically (write to tmp, rename)
 6. Re-validate any changed tokens

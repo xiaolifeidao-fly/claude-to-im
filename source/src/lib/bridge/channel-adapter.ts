@@ -16,6 +16,14 @@ import type {
 export abstract class BaseChannelAdapter {
   /** Which channel type this adapter handles */
   abstract readonly channelType: ChannelType;
+  /** Distinguishes multiple configured bot connections within one channel. */
+  readonly instanceId: string = 'default';
+
+  get adapterKey(): string {
+    return this.instanceId === 'default'
+      ? this.channelType
+      : `${this.channelType}:${this.instanceId}`;
+  }
 
   /**
    * Start the adapter (connect, begin polling/websocket, etc.).
@@ -120,15 +128,15 @@ export abstract class BaseChannelAdapter {
 
 // ── Adapter Registry ────────────────────────────────────────────
 
-const adapterFactories = new Map<string, () => BaseChannelAdapter>();
+const adapterFactories = new Map<string, (options?: unknown) => BaseChannelAdapter>();
 
-export function registerAdapterFactory(channelType: string, factory: () => BaseChannelAdapter): void {
+export function registerAdapterFactory(channelType: string, factory: (options?: unknown) => BaseChannelAdapter): void {
   adapterFactories.set(channelType, factory);
 }
 
-export function createAdapter(channelType: string): BaseChannelAdapter | null {
+export function createAdapter(channelType: string, options?: unknown): BaseChannelAdapter | null {
   const factory = adapterFactories.get(channelType);
-  return factory ? factory() : null;
+  return factory ? factory(options) : null;
 }
 
 export function getRegisteredTypes(): string[] {

@@ -129,6 +129,7 @@ export interface OutboundRefInput {
 export interface UpsertChannelBindingInput {
   channelType: string;
   chatId: string;
+  connectionId?: string;
   codepilotSessionId: string;
   sdkSessionId?: string;
   workingDirectory: string;
@@ -145,7 +146,7 @@ export interface BridgeStore {
   getSetting(key: string): string | null;
 
   // ── Channel bindings ──
-  getChannelBinding(channelType: string, chatId: string): ChannelBinding | null;
+  getChannelBinding(channelType: string, chatId: string, connectionId?: string): ChannelBinding | null;
   upsertChannelBinding(data: UpsertChannelBindingInput): ChannelBinding;
   updateChannelBinding(id: string, updates: Partial<ChannelBinding>): void;
   listChannelBindings(channelType?: ChannelType): ChannelBinding[];

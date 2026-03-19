@@ -26,6 +26,7 @@ Claude Code / Codex → 读写你的代码库
 - **交互式配置** — 引导式向导逐步收集 token，附带详细获取说明
 - **权限控制** — 工具调用需要在聊天中通过内联按钮（Telegram/Discord）或文本 `/perm` 命令（飞书/QQ）明确批准
 - **飞书文件回传** — Codex 生成的文件可作为真正的飞书附件回传到聊天中
+- **飞书多机器人配置** — 可同时配置多个飞书/Lark 机器人，每个机器人拥有独立 `open_id` 白名单、默认工作目录和会话空间
 - **流式预览** — 实时查看 Claude 的输出（Telegram 和 Discord 支持）
 - **会话持久化** — 对话在守护进程重启后保留
 - **密钥保护** — token 以 `chmod 600` 存储，日志中自动脱敏
@@ -160,6 +161,32 @@ bash ~/code/Claude-to-IM-skill/scripts/install-codex.sh --link
 6. **发布**：进入"版本管理与发布" → 创建版本 → 提交审核 → 在管理后台审核通过
 7. **注意**：版本审核通过并发布后机器人才能使用
 
+### 飞书多机器人配置
+
+如果你希望“一个机器人对应一套工作目录和 openid 白名单”，推荐在 `~/.claude-to-im/config.env` 中使用 `CTI_FEISHU_BOTS`。
+
+每个飞书机器人连接都拥有：
+- 自己的飞书应用凭据
+- 自己的 `open_id` 白名单
+- 自己的默认工作目录 / 模型 / 模式
+- 自己独立的 session 会话空间，不会和其他机器人串会话
+
+示例：
+
+```env
+CTI_ENABLED_CHANNELS=feishu
+CTI_FEISHU_BOTS=[{"id":"bot-a","name":"机器人A","appId":"cli_xxx","appSecret":"secret_xxx","domain":"feishu","openIds":["ou_xxx"],"workDir":"/Users/me/project-a","model":"gpt-5","mode":"code"},{"id":"bot-b","name":"机器人B","appId":"cli_yyy","appSecret":"secret_yyy","openIds":["ou_yyy"],"workDir":"/Users/me/project-b","mode":"plan"}]
+```
+
+字段说明：
+- `id`：连接的稳定标识，用于内部隔离 session
+- `appId` / `appSecret`：该机器人的飞书应用凭据
+- `openIds`：允许访问该机器人的飞书 `open_id` 列表
+- `workDir`：该机器人新建会话时默认进入的工作目录
+- `model` / `mode`：可选的机器人级默认值覆盖
+
+旧的单机器人字段 `CTI_FEISHU_APP_ID`、`CTI_FEISHU_ALLOWED_USERS` 仍然兼容，但新部署建议直接使用 `CTI_FEISHU_BOTS`。
+
 ### QQ
 
 > QQ 目前仅支持 **C2C 私聊**（沙箱接入）。不支持群聊/频道、内联权限按钮、流式预览。权限确认使用文本 `/perm ...` 命令。仅支持图片入站（不支持图片回复）。
@@ -228,6 +255,7 @@ bash ~/code/Claude-to-IM-skill/scripts/install-codex.sh --link
 |---|---|
 | `Bridge 无法启动` | 运行 `doctor`，检查 Node 版本和日志 |
 | `收不到消息` | 用 `doctor` 验证 token，检查允许用户配置 |
+| `飞书机器人进错目录/串会话` | 改用 `CTI_FEISHU_BOTS`，为每个机器人分别配置 `workDir` 和 `openIds` |
 | `权限超时` | 用户 5 分钟内未响应，工具调用自动拒绝 |
 | `PID 文件残留` | 运行 `stop` 再 `start`，脚本会自动清理 |
 

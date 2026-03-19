@@ -18,6 +18,8 @@ The wizard will prompt you for:
 4. **Working directory** -- Default project directory for Claude Code sessions
 5. **Model and mode** -- Claude model and interaction mode (code/plan/ask)
 
+For Feishu, you can also configure multiple bots in `~/.claude-to-im/config.env` via `CTI_FEISHU_BOTS`, where each bot has its own `open_id` allowlist, default `workDir`, and isolated sessions.
+
 After collecting input, the wizard validates tokens by calling each platform's API and reports results.
 
 Example interaction:

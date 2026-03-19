@@ -97,6 +97,30 @@ Enter comma-separated IDs. Leave empty to allow all servers the bot is in.
 
 ## Feishu / Lark
 
+### Recommended config shape
+
+For new setups, prefer `CTI_FEISHU_BOTS` in `~/.claude-to-im/config.env` instead of a single shared Feishu config.
+
+Each Feishu bot entry manages its own:
+- App ID / App Secret
+- Allowed `open_id` users
+- Default working directory
+- Optional model / mode overrides
+- Independent bridge session namespace
+
+Example:
+
+```env
+CTI_ENABLED_CHANNELS=feishu
+CTI_FEISHU_BOTS=[{"id":"bot-a","appId":"cli_xxx","appSecret":"secret_xxx","openIds":["ou_xxx"],"workDir":"/Users/me/project-a","mode":"code"},{"id":"bot-b","appId":"cli_yyy","appSecret":"secret_yyy","openIds":["ou_yyy"],"workDir":"/Users/me/project-b","mode":"plan"}]
+```
+
+If you only run one Feishu bot, the legacy single-bot fields still work:
+- `CTI_FEISHU_APP_ID`
+- `CTI_FEISHU_APP_SECRET`
+- `CTI_FEISHU_DOMAIN`
+- `CTI_FEISHU_ALLOWED_USERS`
+
 ### App ID and App Secret
 
 **How to create a Feishu/Lark app and get credentials:**
@@ -206,6 +230,11 @@ Leave empty to use the default Feishu domain.
 Feishu user IDs (open_id format like `ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`).
 You can find them in the Feishu Admin Console under user profiles.
 Leave empty to allow all users who can message the bot.
+
+### Working directory and session isolation
+
+With `CTI_FEISHU_BOTS`, each bot can point to a different `workDir`.
+New chats received by that bot will create sessions under that directory, and those sessions are isolated from other Feishu bots.
 
 ---
 

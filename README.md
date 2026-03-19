@@ -26,6 +26,7 @@ Claude Code / Codex → reads/writes your codebase
 - **Interactive setup** — guided wizard collects tokens with step-by-step instructions
 - **Permission control** — tool calls require explicit approval via inline buttons (Telegram/Discord) or text `/perm` commands (Feishu/QQ)
 - **Feishu file delivery** — Codex-generated files can be uploaded back to Feishu as real file attachments
+- **Multi-bot Feishu config** — configure multiple Feishu/Lark bots, each with its own `open_id` allowlist, default working directory, and isolated session space
 - **Streaming preview** — see Claude's response as it types (Telegram & Discord)
 - **Session persistence** — conversations survive daemon restarts
 - **Secret protection** — tokens stored with `chmod 600`, auto-redacted in all logs
@@ -160,6 +161,32 @@ The `setup` wizard provides inline guidance for every step. Here's a summary:
 6. **Publish**: go to "Version Management & Release" → create version → submit for review → approve in Admin Console
 7. **Important**: The bot will NOT work until the version is approved and published
 
+### Feishu multi-bot config
+
+If you want one bot per workspace / user group, use `CTI_FEISHU_BOTS` in `~/.claude-to-im/config.env`.
+
+Each configured bot owns:
+- Its own Feishu app credentials
+- Its own `open_id` allowlist
+- Its own default working directory / model / mode
+- Its own session namespace, so different bots do not share bridge sessions
+
+Example:
+
+```env
+CTI_ENABLED_CHANNELS=feishu
+CTI_FEISHU_BOTS=[{"id":"bot-a","name":"Bot A","appId":"cli_xxx","appSecret":"secret_xxx","domain":"feishu","openIds":["ou_xxx"],"workDir":"/Users/me/project-a","model":"gpt-5","mode":"code"},{"id":"bot-b","name":"Bot B","appId":"cli_yyy","appSecret":"secret_yyy","openIds":["ou_yyy"],"workDir":"/Users/me/project-b","mode":"plan"}]
+```
+
+Field meanings:
+- `id`: stable connection ID used internally to isolate sessions
+- `appId` / `appSecret`: Feishu app credentials for that bot
+- `openIds`: allowed Feishu `open_id` users for that bot
+- `workDir`: default workspace used when that bot creates a new session
+- `model` / `mode`: optional per-bot overrides
+
+Legacy single-bot fields like `CTI_FEISHU_APP_ID` and `CTI_FEISHU_ALLOWED_USERS` still work, but `CTI_FEISHU_BOTS` is the recommended format for new setups.
+
 ### QQ
 
 > QQ currently supports **C2C private chat only**. No group/channel support, no inline permission buttons, no streaming preview. Permissions use text `/perm ...` commands. Image inbound only (no image replies).
@@ -228,6 +255,7 @@ This checks: Node.js version, config file existence and permissions, token valid
 |---|---|
 | `Bridge won't start` | Run `doctor`. Check if Node >= 20. Check logs. |
 | `Messages not received` | Verify token with `doctor`. Check allowed users config. |
+| `Wrong workspace/session used in Feishu` | Use `CTI_FEISHU_BOTS` and assign each bot its own `workDir` and `openIds`. |
 | `Permission timeout` | User didn't respond within 5 min. Tool call auto-denied. |
 | `Stale PID file` | Run `stop` then `start`. daemon.sh auto-cleans stale PIDs. |
 

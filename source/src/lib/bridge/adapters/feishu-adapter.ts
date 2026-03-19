@@ -196,8 +196,22 @@ const MIME_BY_TYPE: Record<string, string> = {
   media: 'application/octet-stream',
 };
 
+interface FeishuAdapterConfig {
+  id?: string;
+  name?: string;
+  appId?: string;
+  appSecret?: string;
+  domain?: string;
+  openIds?: string[];
+  workDir?: string;
+  model?: string;
+  mode?: string;
+}
+
 export class FeishuAdapter extends BaseChannelAdapter {
   readonly channelType: ChannelType = 'feishu';
+  readonly instanceId: string;
+  private readonly config: FeishuAdapterConfig;
 
   private running = false;
   private queue: InboundMessage[] = [];
@@ -221,6 +235,12 @@ export class FeishuAdapter extends BaseChannelAdapter {
   /** Warn once when falling back to CardKit v1 updates. */
   private loggedUsingCardKitV1 = false;
 
+  constructor(config: FeishuAdapterConfig = {}) {
+    super();
+    this.config = config;
+    this.instanceId = config.id?.trim() || 'default';
+  }
+
   // ── Lifecycle ───────────────────────────────────────────────
 
   async start(): Promise<void> {
@@ -232,9 +252,9 @@ export class FeishuAdapter extends BaseChannelAdapter {
       return;
     }
 
-    const appId = getBridgeContext().store.getSetting('bridge_feishu_app_id') || '';
-    const appSecret = getBridgeContext().store.getSetting('bridge_feishu_app_secret') || '';
-    const domainSetting = getBridgeContext().store.getSetting('bridge_feishu_domain') || 'feishu';
+    const appId = this.config.appId || getBridgeContext().store.getSetting('bridge_feishu_app_id') || '';
+    const appSecret = this.config.appSecret || getBridgeContext().store.getSetting('bridge_feishu_app_secret') || '';
+    const domainSetting = this.config.domain || getBridgeContext().store.getSetting('bridge_feishu_domain') || 'feishu';
     const domain = domainSetting === 'lark'
       ? lark.Domain.Lark
       : lark.Domain.Feishu;
@@ -425,6 +445,7 @@ export class FeishuAdapter extends BaseChannelAdapter {
 
       // Extract chat/user context
       const chatId = event?.context?.open_chat_id || value.chatId || '';
+      const connectionId = value.connectionId || undefined;
       const messageId = event?.context?.open_message_id || event?.open_message_id || '';
       const userId = event?.operator?.open_id || event?.open_id || '';
 
@@ -435,6 +456,7 @@ export class FeishuAdapter extends BaseChannelAdapter {
         address: {
           channelType: 'feishu',
           chatId,
+          connectionId,
           userId,
         },
         text: '',
@@ -1126,7 +1148,12 @@ export class FeishuAdapter extends BaseChannelAdapter {
 
     if (permId) {
       // Use real card action buttons
-      const cardJson = buildPermissionButtonCard(mdText, permId, chatId);
+      const cardJson = buildPermissionButtonCard(
+        mdText,
+        permId,
+        chatId,
+        this.instanceId !== 'default' ? this.instanceId : undefined,
+      );
 
       try {
         const res = await this.restClient.im.message.create({
@@ -1235,17 +1262,19 @@ export class FeishuAdapter extends BaseChannelAdapter {
     const enabled = getBridgeContext().store.getSetting('bridge_feishu_enabled');
     if (enabled !== 'true') return 'bridge_feishu_enabled is not true';
 
-    const appId = getBridgeContext().store.getSetting('bridge_feishu_app_id');
+    const appId = this.config.appId || getBridgeContext().store.getSetting('bridge_feishu_app_id');
     if (!appId) return 'bridge_feishu_app_id not configured';
 
-    const appSecret = getBridgeContext().store.getSetting('bridge_feishu_app_secret');
+    const appSecret = this.config.appSecret || getBridgeContext().store.getSetting('bridge_feishu_app_secret');
     if (!appSecret) return 'bridge_feishu_app_secret not configured';
 
     return null;
   }
 
   isAuthorized(userId: string, chatId: string): boolean {
-    const allowedUsers = getBridgeContext().store.getSetting('bridge_feishu_allowed_users') || '';
+    const allowedUsers = this.config.openIds?.join(',')
+      || getBridgeContext().store.getSetting('bridge_feishu_allowed_users')
+      || '';
     if (!allowedUsers) {
       // No restriction configured — allow all
       return true;
@@ -1417,6 +1446,7 @@ export class FeishuAdapter extends BaseChannelAdapter {
     const address = {
       channelType: 'feishu' as const,
       chatId,
+      connectionId: this.instanceId !== 'default' ? this.instanceId : undefined,
       userId,
     };
 
@@ -1763,4 +1793,4 @@ export class FeishuAdapter extends BaseChannelAdapter {
 }
 
 // Self-register so bridge-manager can create FeishuAdapter via the registry.
-registerAdapterFactory('feishu', () => new FeishuAdapter());
+registerAdapterFactory('feishu', (options) => new FeishuAdapter((options as FeishuAdapterConfig | undefined) ?? {}));

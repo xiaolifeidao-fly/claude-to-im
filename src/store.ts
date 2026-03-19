@@ -58,6 +58,10 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function bindingKey(channelType: string, chatId: string, connectionId?: string): string {
+  return `${channelType}:${connectionId || 'default'}:${chatId}`;
+}
+
 // ── Lock entry ──
 
 interface LockEntry {
@@ -202,16 +206,22 @@ export class JsonFileStore implements BridgeStore {
 
   // ── Channel Bindings ──
 
-  getChannelBinding(channelType: string, chatId: string): ChannelBinding | null {
+  getChannelBinding(channelType: string, chatId: string, connectionId?: string): ChannelBinding | null {
+    const direct = this.bindings.get(bindingKey(channelType, chatId, connectionId));
+    if (direct) return direct;
+    if (connectionId && connectionId !== 'default') {
+      return null;
+    }
     return this.bindings.get(`${channelType}:${chatId}`) ?? null;
   }
 
   upsertChannelBinding(data: UpsertChannelBindingInput): ChannelBinding {
-    const key = `${data.channelType}:${data.chatId}`;
+    const key = bindingKey(data.channelType, data.chatId, data.connectionId);
     const existing = this.bindings.get(key);
     if (existing) {
       const updated: ChannelBinding = {
         ...existing,
+        connectionId: data.connectionId ?? existing.connectionId,
         codepilotSessionId: data.codepilotSessionId,
         workingDirectory: data.workingDirectory,
         model: data.model,
@@ -225,6 +235,7 @@ export class JsonFileStore implements BridgeStore {
       id: uuid(),
       channelType: data.channelType,
       chatId: data.chatId,
+      connectionId: data.connectionId,
       codepilotSessionId: data.codepilotSessionId,
       sdkSessionId: '',
       workingDirectory: data.workingDirectory,

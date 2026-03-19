@@ -89,6 +89,39 @@ describe('configToSettings', () => {
     assert.equal(m.get('bridge_feishu_allowed_users'), 'fu1');
   });
 
+  it('maps multi-feishu bot config and exposes the first bot as legacy defaults', () => {
+    const m = configToSettings({
+      ...base,
+      enabledChannels: ['feishu'],
+      feishuBots: [
+        {
+          id: 'bot-a',
+          appId: 'app-a',
+          appSecret: 'secret-a',
+          domain: 'feishu',
+          openIds: ['ou_1', 'ou_2'],
+          workDir: '/tmp/a',
+          model: 'model-a',
+          mode: 'plan',
+        },
+        {
+          id: 'bot-b',
+          appId: 'app-b',
+          appSecret: 'secret-b',
+          openIds: ['ou_3'],
+          workDir: '/tmp/b',
+        },
+      ],
+    });
+    assert.ok(m.get('bridge_feishu_bots'));
+    assert.equal(m.get('bridge_feishu_app_id'), 'app-a');
+    assert.equal(m.get('bridge_feishu_app_secret'), 'secret-a');
+    assert.equal(m.get('bridge_feishu_allowed_users'), 'ou_1,ou_2');
+    assert.equal(m.get('bridge_feishu_default_work_dir'), '/tmp/a');
+    assert.equal(m.get('bridge_feishu_default_model'), 'model-a');
+    assert.equal(m.get('bridge_feishu_default_mode'), 'plan');
+  });
+
   it('sets bridge_qq_enabled based on enabledChannels', () => {
     const m = configToSettings({ ...base, enabledChannels: ['qq'] });
     assert.equal(m.get('bridge_qq_enabled'), 'true');

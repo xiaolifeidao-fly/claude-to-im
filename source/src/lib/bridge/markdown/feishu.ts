@@ -228,6 +228,7 @@ export function buildPermissionButtonCard(
   text: string,
   permissionRequestId: string,
   chatId?: string,
+  connectionId?: string,
 ): string {
   const buttons = [
     { label: 'Allow', type: 'primary', action: 'allow' },
@@ -243,7 +244,11 @@ export function buildPermissionButtonCard(
       text: { tag: 'plain_text', content: btn.label },
       type: btn.type,
       size: 'medium',
-      value: { callback_data: `perm:${btn.action}:${permissionRequestId}`, ...(chatId ? { chatId } : {}) },
+      value: {
+        callback_data: `perm:${btn.action}:${permissionRequestId}`,
+        ...(chatId ? { chatId } : {}),
+        ...(connectionId ? { connectionId } : {}),
+      },
     }],
   }));
 

@@ -112,6 +112,44 @@ describe('JsonFileStore', () => {
     assert.equal(store.listChannelBindings().length, 2);
   });
 
+  it('stores bindings separately for different connectionIds', () => {
+    const store = new JsonFileStore(makeSettings());
+    const first = store.upsertChannelBinding({
+      channelType: 'feishu',
+      chatId: 'chat-1',
+      connectionId: 'bot-a',
+      codepilotSessionId: 's1',
+      workingDirectory: '/tmp/a',
+      model: 'm1',
+    });
+    const second = store.upsertChannelBinding({
+      channelType: 'feishu',
+      chatId: 'chat-1',
+      connectionId: 'bot-b',
+      codepilotSessionId: 's2',
+      workingDirectory: '/tmp/b',
+      model: 'm2',
+    });
+
+    assert.notEqual(first.id, second.id);
+    assert.equal(store.getChannelBinding('feishu', 'chat-1', 'bot-a')?.codepilotSessionId, 's1');
+    assert.equal(store.getChannelBinding('feishu', 'chat-1', 'bot-b')?.codepilotSessionId, 's2');
+  });
+
+  it('does not fall back to legacy feishu binding when a specific connectionId is requested', () => {
+    const store = new JsonFileStore(makeSettings());
+    store.upsertChannelBinding({
+      channelType: 'feishu',
+      chatId: 'chat-legacy',
+      codepilotSessionId: 'legacy',
+      workingDirectory: '/tmp/legacy',
+      model: 'legacy-model',
+    });
+
+    assert.equal(store.getChannelBinding('feishu', 'chat-legacy', 'skill_test-bot'), null);
+    assert.equal(store.getChannelBinding('feishu', 'chat-legacy')?.codepilotSessionId, 'legacy');
+  });
+
   it('addMessage and getMessages', () => {
     const store = new JsonFileStore(makeSettings());
     const session = store.createSession('test', 'model', undefined, '/tmp');
