@@ -18,8 +18,8 @@ import type {
   PermissionLinkRecord,
   OutboundRefInput,
   UpsertChannelBindingInput,
-} from 'claude-to-im/src/lib/bridge/host.js';
-import type { ChannelBinding, ChannelType } from 'claude-to-im/src/lib/bridge/types.js';
+} from 'claude-to-im-source/src/lib/bridge/host.js';
+import type { ChannelBinding, ChannelType } from 'claude-to-im-source/src/lib/bridge/types.js';
 import { CTI_HOME } from './config.js';
 
 const DATA_DIR = path.join(CTI_HOME, 'data');

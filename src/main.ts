@@ -8,12 +8,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-import { initBridgeContext } from 'claude-to-im/src/lib/bridge/context.js';
-import * as bridgeManager from 'claude-to-im/src/lib/bridge/bridge-manager.js';
+import { initBridgeContext } from 'claude-to-im-source/src/lib/bridge/context.js';
+import * as bridgeManager from 'claude-to-im-source/src/lib/bridge/bridge-manager.js';
 // Side-effect import to trigger adapter self-registration
-import 'claude-to-im/src/lib/bridge/adapters/index.js';
+import 'claude-to-im-source/src/lib/bridge/adapters/index.js';
 
-import type { LLMProvider } from 'claude-to-im/src/lib/bridge/host.js';
+import type { LLMProvider } from 'claude-to-im-source/src/lib/bridge/host.js';
 import { loadConfig, configToSettings, CTI_HOME } from './config.js';
 import type { Config } from './config.js';
 import { JsonFileStore } from './store.js';

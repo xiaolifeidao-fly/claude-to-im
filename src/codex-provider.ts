@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { LLMProvider, StreamChatParams } from 'claude-to-im/src/lib/bridge/host.js';
+import type { LLMProvider, StreamChatParams } from 'claude-to-im-source/src/lib/bridge/host.js';
 import type { PendingPermissions } from './permission-gateway.js';
 import { sseEvent } from './sse-utils.js';
 
@@ -58,7 +58,7 @@ type ThreadInstance = any;
 interface CodexStreamState {
   agentTextById: Map<string, string>;
   startedToolIds: Set<string>;
-  outputFilesByPath: Map<string, import('claude-to-im/src/lib/bridge/host.js').FileAttachment>;
+  outputFilesByPath: Map<string, import('claude-to-im-source/src/lib/bridge/host.js').FileAttachment>;
   workingDirectory?: string;
 }
 
@@ -80,7 +80,7 @@ function isTextualMime(mimeType: string): boolean {
 function collectOutputFile(
   workingDirectory: string | undefined,
   changePath: string,
-): import('claude-to-im/src/lib/bridge/host.js').FileAttachment | null {
+): import('claude-to-im-source/src/lib/bridge/host.js').FileAttachment | null {
   const absolutePath = path.isAbsolute(changePath)
     ? changePath
     : (workingDirectory ? path.resolve(workingDirectory, changePath) : '');
